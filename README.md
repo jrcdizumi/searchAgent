@@ -2,34 +2,103 @@
 
 一个基于LangChain和ReAct框架的智能代理，能够通过实时网络搜索来回答用户问题，克服大语言模型训练数据的时效性限制。
 
+## 🆕 新功能：流式传输 Web UI
+
+现在支持**实时流式响应**和**现代化 Web 界面**！
+
+🌟 **快速体验流式界面：**
+```bash
+# 启动后端 API
+./start_server.sh
+
+# 启动前端（新终端窗口）
+cd frontend && npm run dev
+
+# 访问 http://localhost:3000
+```
+
+📚 **详细文档：**
+- 🚀 [流式传输快速启动](STREAMING_QUICKSTART.md)
+- 📡 [API 使用指南](API_GUIDE.md)
+- 🌊 [流式传输详解](README_STREAMING.md)
+
 ## ✨ 主要特性
 
 - 🧠 **ReAct框架**: 使用Reasoning and Acting范式进行推理和决策
 - 🔍 **实时搜索**: 支持多种搜索引擎（DuckDuckGo、Tavily）
+- 🌊 **流式传输**: Server-Sent Events (SSE) 实时流式输出 ⭐ **NEW**
+- 💻 **Web界面**: React + TypeScript 现代化前端 ⭐ **NEW**
+- 📡 **REST API**: FastAPI 构建的高性能 API 服务 ⭐ **NEW**
 - 💾 **对话记忆**: 保存对话历史，支持上下文相关的多轮对话
 - 🔧 **灵活配置**: 支持多种LLM模型和搜索提供商
 - 📝 **持久化存储**: 对话历史自动保存到文件
-- 🎯 **易于使用**: 提供命令行界面和编程接口
+- 🎯 **易于使用**: 提供命令行界面、Web界面和编程接口
 
 ## 📋 项目结构
 
 ```
 searchAgent/
-├── main.py              # 主程序入口（交互式CLI）
-├── react_agent.py       # ReAct代理核心实现
-├── search_tools.py      # 搜索工具封装
-├── memory_manager.py    # 记忆管理模块
-├── example.py           # 使用示例
-├── config.example.py    # 配置文件示例
-├── requirements.txt     # Python依赖
-├── setup.sh            # 快速安装脚本
-├── .gitignore          # Git忽略文件
-└── README.md           # 项目文档
+├── api_server.py           # 🌟 FastAPI 服务器（支持流式传输）
+├── start_server.sh         # 🌟 API 服务器启动脚本
+├── main.py                 # 命令行交互界面
+├── react_agent.py          # ReAct 代理核心实现
+├── search_tools.py         # 搜索工具封装
+├── memory_manager.py       # 记忆管理模块
+├── config.py               # 配置文件
+├── requirements.txt        # Python 依赖
+│
+├── frontend/               # 🌟 React + TypeScript 前端
+│   ├── src/
+│   │   ├── App.tsx        # 主应用（支持流式接收）
+│   │   ├── App.css        # 样式文件
+│   │   └── main.tsx       # 入口文件
+│   ├── package.json
+│   └── vite.config.ts
+│
+└── docs/                   # 📚 文档
+    ├── STREAMING_QUICKSTART.md  # 流式传输快速启动
+    ├── API_GUIDE.md             # API 使用指南
+    └── README_STREAMING.md      # 流式传输详解
 ```
 
 ## 🚀 快速开始
 
-### 方法1: 使用安装脚本（推荐）
+### ⭐ 推荐：使用 Web 界面 + 流式传输
+
+#### 1. 启动后端 API 服务
+
+```bash
+# 一键启动（推荐）
+chmod +x start_server.sh
+./start_server.sh
+
+# 或手动启动
+python api_server.py
+```
+
+后端将运行在 http://localhost:8000
+
+#### 2. 启动前端界面
+
+打开**新的终端窗口**：
+
+```bash
+cd frontend
+npm install  # 首次运行需要
+npm run dev
+```
+
+前端将运行在 http://localhost:3000
+
+#### 3. 开始使用
+
+在浏览器打开 http://localhost:3000 即可体验流式对话！
+
+📖 **详细教程**：查看 [流式传输快速启动指南](STREAMING_QUICKSTART.md)
+
+---
+
+### 方法1: 使用安装脚本（命令行版本）
 
 ```bash
 # 运行安装脚本
