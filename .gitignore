@@ -35,3 +35,4 @@ dist/
 memory/
 chat_history/
 
+.DS_Store
