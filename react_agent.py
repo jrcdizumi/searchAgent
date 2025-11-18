@@ -7,7 +7,7 @@ Compatible with new LangChain version
 from typing import Optional, List, Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from search_tools import SearchToolWrapper
+from search_tools import SearchToolWrapper, TimeToolWrapper
 from memory_manager import MemoryManager
 import json
 import re
@@ -16,11 +16,38 @@ import re
 class SearchAgent:
     """Search-based intelligent agent using function calling"""
     
-    SYSTEM_PROMPT = """You are a helpful AI assistant that can use search tools to retrieve real-time information to answer user questions.
+    SYSTEM_PROMPT = """You are a helpful AI assistant with access to tools that help you provide accurate and timely information.
 
-When you need latest information, real-time data, or content beyond your knowledge, use the search tool.
-For simple common-sense questions, you can answer directly without searching.
-Always respond in English."""
+Available Tools:
+1. search_web: Use when you need latest information, news, prices, weather, or any real-time data from the internet
+2. get_current_time: Use when you need to know the current date, time, or day of the week
+
+IMPORTANT Guidelines for Tool Usage:
+
+Time Tool - Use get_current_time when:
+- User asks about current time: "现在几点？" "What time is it?"
+- User asks about current date: "今天几号？" "What's today's date?"
+- User asks about day of week: "今天星期几？" "What day is it?"
+- User mentions "today", "now", "latest", "newest", "recent", "this week", "this month"
+- User asks about time in different timezones: "纽约现在几点？"
+- ANY query about current/latest information: ALWAYS get time first, then search
+  * "What is the latest iPhone?" → Get time first, then search "latest iPhone [date]"
+  * "今天有什么新闻？" → Get time first, then search "[date] news"
+  * "Recent AI developments" → Get time first, then search "AI developments [date]"
+
+Search Tool - Use search_web when:
+- Need latest news, current events, or recent information
+- Need real-time data like prices, weather, stock prices
+- User asks about something you don't have up-to-date knowledge about
+- User explicitly asks to search or look up information
+
+Direct Answer - Answer directly when:
+- Question is about general knowledge that doesn't change
+- Simple math, definitions, or common facts
+- Personal opinions or creative tasks
+
+Always use tools proactively when needed to provide accurate, current information.
+Respond naturally in the same language as the user's question."""
     
     def __init__(
         self,
@@ -63,6 +90,9 @@ Always respond in English."""
             api_key=tavily_api_key
         )
         
+        # Initialize time tool
+        self.time_tool = TimeToolWrapper()
+        
         # Initialize memory manager
         self.memory_manager = MemoryManager(
             max_length=max_memory_length,
@@ -89,6 +119,47 @@ Always respond in English."""
                             }
                         },
                         "required": ["query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_current_time",
+                    "description": """Get the current date and time in a specific timezone. 
+                    
+USE THIS TOOL when:
+- User asks "现在几点？" "What time is it?" "几点了？"
+- User asks "今天几号？" "What's the date?" "今天是几月几号？"
+- User asks "今天星期几？" "What day is it today?" "今天周几？"
+- User mentions ANY time-related words: "today", "now", "latest", "newest", "recent", "current", "this week", "this month"
+- User asks about "latest" or "newest" products/events/news
+- You need current date context for accurate searching
+
+CRITICAL: For ANY "latest/newest/recent" query, ALWAYS call this FIRST, then use the date in your search!
+
+EXAMPLES that MUST trigger this tool:
+- "现在几点了？" → Call get_current_time()
+- "今天是几号？" → Call get_current_time()
+- "What is the latest iPhone?" → Call get_current_time() FIRST, then search "latest iPhone November 2025"
+- "What is the latest iPhone now?" → Call get_current_time() FIRST, then search
+- "今天有什么新闻？" → Call get_current_time() FIRST, then search "[date] news"
+- "Recent AI developments" → Call get_current_time() FIRST, then search "AI developments November 2025"
+- "纽约现在几点？" → Call get_current_time(timezone="America/New_York")
+- "Newest features in iOS" → Call get_current_time() FIRST
+- "Current Bitcoin price" → Call get_current_time() FIRST
+
+RULE: If query contains "latest/newest/recent/now/today/current" → ALWAYS get time FIRST!""",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "timezone": {
+                                "type": "string",
+                                "description": "Timezone name. Common values: 'Asia/Shanghai' (China/Beijing), 'America/New_York' (US East), 'America/Los_Angeles' (US West), 'Europe/London' (UK), 'Asia/Tokyo' (Japan), 'Europe/Paris' (France). Default is 'Asia/Shanghai'.",
+                                "default": "Asia/Shanghai"
+                            }
+                        },
+                        "required": []
                     }
                 }
             }
@@ -165,25 +236,20 @@ Always respond in English."""
                 if self.verbose and iteration > 1:
                     print(f"\n🔄 Iteration {iteration}")
                 
-                # Call LLM with or without tools based on search count
-                if search_count < max_searches:
-                    # Still allow tool use
-                    response = self.llm.invoke(
-                        messages,
-                        tools=self.tools,
-                        tool_choice="auto"
-                    )
-                else:
-                    # Max searches reached, force final answer without tools
-                    response = self.llm.invoke(messages)
+                # Call LLM with tools (time tool doesn't count towards search limit)
+                response = self.llm.invoke(
+                    messages,
+                    tools=self.tools,
+                    tool_choice="auto"
+                )
                 
                 # Check if model wants to call a function (structured format)
                 search_performed = False
                 
-                if hasattr(response, 'tool_calls') and response.tool_calls and search_count < max_searches:
+                if hasattr(response, 'tool_calls') and response.tool_calls:
                     # Process structured tool calls
                     for tool_call in response.tool_calls:
-                        if tool_call['name'] == 'search_web':
+                        if tool_call['name'] == 'search_web' and search_count < max_searches:
                             args = tool_call['args']
                             search_query = args.get('query', '')
                             
@@ -209,6 +275,42 @@ Always respond in English."""
                             )
                             
                             search_count += 1
+                            search_performed = True
+                            break
+                        
+                        elif tool_call['name'] == 'search_web' and search_count >= max_searches:
+                            # Max searches reached, skip this search
+                            if self.verbose:
+                                print(f"\n⚠️ Max searches ({max_searches}) reached, skipping search")
+                            # Don't add tool call to messages, let model continue without it
+                            break
+                        
+                        elif tool_call['name'] == 'get_current_time':
+                            # Time tool doesn't count towards search limit
+                            args = tool_call['args']
+                            timezone = args.get('timezone', 'Asia/Shanghai')
+                            
+                            if self.verbose:
+                                print(f"\n🕐 Getting current time")
+                                print(f"📍 Timezone: {timezone}")
+                            
+                            # Execute time query
+                            time_result = self.time_tool.get_current_time(timezone)
+                            
+                            if self.verbose:
+                                print(f"✅ Time retrieved")
+                            
+                            # Add assistant message with tool call
+                            messages.append(response)
+                            
+                            # Add tool response
+                            messages.append(
+                                ToolMessage(
+                                    content=time_result,
+                                    tool_call_id=tool_call['id']
+                                )
+                            )
+                            
                             search_performed = True
                             break
                 

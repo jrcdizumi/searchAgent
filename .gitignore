@@ -35,4 +35,10 @@ dist/
 memory/
 chat_history/
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/package-lock.json
+
 .DS_Store

@@ -1,5 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
 import './App.css'
+import 'highlight.js/styles/github-dark.css'
 
 interface Message {
   role: 'user' | 'assistant' | 'system'
@@ -15,6 +19,9 @@ interface StreamEvent {
   count?: number
 }
 
+// LocalStorage 键名
+const STORAGE_KEY = 'chat_history'
+
 function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -23,6 +30,39 @@ function App() {
   const [searchStatus, setSearchStatus] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  // 从 localStorage 加载历史对话
+  useEffect(() => {
+    try {
+      const savedMessages = localStorage.getItem(STORAGE_KEY)
+      if (savedMessages) {
+        const parsed = JSON.parse(savedMessages)
+        // 将时间戳字符串转换回 Date 对象
+        const messagesWithDates = parsed.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }))
+        setMessages(messagesWithDates)
+        console.log('✅ 已加载历史对话:', messagesWithDates.length, '条消息')
+      }
+    } catch (error) {
+      console.error('❌ 加载历史对话失败:', error)
+      // 如果数据损坏，清除它
+      localStorage.removeItem(STORAGE_KEY)
+    }
+  }, [])
+
+  // 保存消息到 localStorage（当消息变化时）
+  useEffect(() => {
+    if (messages.length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
+        console.log('💾 已保存对话历史')
+      } catch (error) {
+        console.error('❌ 保存对话历史失败:', error)
+      }
+    }
+  }, [messages])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -176,19 +216,49 @@ function App() {
   }
 
   const clearChat = () => {
+    // 显示确认对话框
+    if (messages.length > 0) {
+      const confirmed = window.confirm(
+        '确定要清空所有对话记录吗？\n\n这将删除本地保存的所有历史对话，此操作不可恢复。'
+      )
+      if (!confirmed) {
+        return
+      }
+    }
+
+    // 清空状态
     setMessages([])
     setStreamingContent('')
     setSearchStatus('')
-    // Call API to clear backend memory
-    fetch('/api/clear', { method: 'POST' }).catch(console.error)
+    
+    // 清空 localStorage
+    localStorage.removeItem(STORAGE_KEY)
+    console.log('🗑️ 已清空本地对话历史')
+    
+    // 调用 API 清空后端记忆
+    fetch('/api/clear', { method: 'POST' })
+      .then(() => console.log('✅ 已清空后端记忆'))
+      .catch((error) => console.error('❌ 清空后端记忆失败:', error))
   }
 
   return (
     <div className="app">
       <header className="header">
-        <h1>🔍 智能搜索助手</h1>
-        <button onClick={clearChat} className="clear-btn" title="清空对话">
-          清空
+        <div className="header-left">
+          <h1>🔍 智能搜索助手</h1>
+          {messages.length > 0 && (
+            <span className="message-count">
+              {messages.length} 条消息
+            </span>
+          )}
+        </div>
+        <button 
+          onClick={clearChat} 
+          className="clear-btn" 
+          title="清空对话"
+          disabled={messages.length === 0 && !streamingContent}
+        >
+          清空历史
         </button>
       </header>
 
@@ -198,6 +268,9 @@ function App() {
             <div className="welcome">
               <h2>👋 欢迎使用智能搜索助手</h2>
               <p>我可以帮您搜索和解答各种问题，支持实时流式回复</p>
+              <p className="storage-hint">
+                💾 对话历史会自动保存到本地，下次打开自动恢复
+              </p>
               <div className="suggestions">
                 <button onClick={() => setInput('今天的天气如何？')}>
                   今天的天气如何？
@@ -222,7 +295,18 @@ function App() {
                       : '⚠️'}
                   </div>
                   <div className="message-content">
-                    <div className="message-text">{msg.content}</div>
+                    <div className="message-text">
+                      {msg.role === 'user' || msg.role === 'system' ? (
+                        msg.content
+                      ) : (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeHighlight]}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      )}
+                    </div>
                     <div className="message-time">
                       {msg.timestamp.toLocaleTimeString('zh-CN', {
                         hour: '2-digit',
@@ -239,7 +323,12 @@ function App() {
                   <div className="message-avatar">🤖</div>
                   <div className="message-content">
                     <div className="message-text">
-                      {streamingContent}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeHighlight]}
+                      >
+                        {streamingContent}
+                      </ReactMarkdown>
                       <span className="cursor-blink">▊</span>
                     </div>
                     {searchStatus && (
